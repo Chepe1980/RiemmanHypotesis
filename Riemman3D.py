@@ -12,25 +12,22 @@ st.set_page_config(
 )
 
 # Set precision for mpmath
-mpmath.mp.dps = 20
+mpmath.mp.dps = 15
 
-def compute_zeta_surface(sigma_min, sigma_max, t_max, num_points_sigma, num_points_t):
+def compute_zeta_surface(sigma_min, sigma_max, t_max, num_points):
     """Compute |zeta(s)| values for the given range, avoiding poles"""
     # Adjust to avoid σ = 1.0 exactly
     sigma_min_adj = max(0.01, sigma_min)
-    sigma_max_adj = min(0.99, sigma_max) if sigma_max >= 1.0 else sigma_max
+    sigma_max_adj = min(0.99, sigma_max)
     
-    sigma_values = np.linspace(sigma_min_adj, sigma_max_adj, num_points_sigma)
-    t_values = np.linspace(0.1, t_max, num_points_t)  # Avoid t=0
+    sigma_values = np.linspace(sigma_min_adj, sigma_max_adj, num_points)
+    t_values = np.linspace(0.1, t_max, num_points)
     
     X, Y = np.meshgrid(sigma_values, t_values)
     Z = np.zeros_like(X, dtype=float)
     
-    progress_text = f"Computing zeta values for σ=[{sigma_min_adj:.2f}, {sigma_max_adj:.2f}], t=[0.1, {t_max}]..."
-    progress_bar = st.progress(0, text=progress_text)
-    
+    progress_bar = st.progress(0, text="Computing zeta values...")
     total_points = len(t_values) * len(sigma_values)
-    completed_points = 0
     
     for i in range(len(t_values)):
         for j in range(len(sigma_values)):
@@ -38,34 +35,32 @@ def compute_zeta_surface(sigma_min, sigma_max, t_max, num_points_sigma, num_poin
             try:
                 Z[i, j] = abs(mpmath.zeta(s))
             except:
-                Z[i, j] = np.nan  # Handle any computation errors
+                Z[i, j] = np.nan
             
-            completed_points += 1
-            if completed_points % 100 == 0:  # Update progress every 100 points
-                progress_bar.progress(completed_points / total_points, text=progress_text)
+            if (i * len(sigma_values) + j) % 100 == 0:
+                progress = (i * len(sigma_values) + j) / total_points
+                progress_bar.progress(progress, text=f"Computing... {progress*100:.1f}%")
     
-    progress_bar.empty()  # Remove progress bar when done
-    return X, Y, Z, sigma_values, t_values
+    progress_bar.empty()
+    return X, Y, Z
 
-def create_zeta_plot(sigma_min, sigma_max, t_max, num_points_sigma=60, num_points_t=80):
+def create_zeta_plot(X, Y, Z, sigma_min, sigma_max, t_max):
     """Create interactive 3D plot of |zeta(s)|"""
-    X, Y, Z, sigma_values, t_values = compute_zeta_surface(sigma_min, sigma_max, t_max, 
-                                                          num_points_sigma, num_points_t)
-    
-    # Create surface plot
+    # Create surface plot with simplified colorbar
     surface = go.Surface(
-        x=X, y=Y, z=Z,
+        x=X,
+        y=Y, 
+        z=Z,
         colorscale='Viridis',
-        opacity=0.85,
+        opacity=0.8,
         name='|ζ(σ + it)|',
-        colorbar=dict(title="|ζ(s)|", titleside="right"),
         hovertemplate='<b>σ</b>: %{x:.3f}<br><b>t</b>: %{y:.3f}<br><b>|ζ(s)|</b>: %{z:.6f}<extra></extra>'
     )
     
-    # Create critical line if it's in the range
+    # Create critical line
     critical_sigma = 0.5
     if sigma_min <= 0.5 <= sigma_max:
-        critical_line_t = np.linspace(0.1, t_max, 100)
+        critical_line_t = np.linspace(0.1, t_max, 50)
         critical_line_z = np.zeros_like(critical_line_t)
         
         for i, t in enumerate(critical_line_t):
@@ -81,13 +76,13 @@ def create_zeta_plot(sigma_min, sigma_max, t_max, num_points_sigma=60, num_point
             name='Critical Line (σ=0.5)'
         )
     else:
-        critical_line = go.Scatter3d(x=[], y=[], z=[], name='Critical Line (σ=0.5)')
+        critical_line = go.Scatter3d(x=[], y=[], z=[], name='Critical Line')
     
     # Create figure
     fig = go.Figure(data=[surface, critical_line])
     
     fig.update_layout(
-        title=f'3D Plot of |ζ(s)| for σ ∈ [{sigma_min:.2f}, {sigma_max:.2f}], t ∈ [0.1, {t_max}]',
+        title=f'|ζ(s)| for σ ∈ [{sigma_min:.2f}, {sigma_max:.2f}], t ∈ [0.1, {t_max}]',
         scene=dict(
             xaxis_title='Real Part (σ)',
             yaxis_title='Imaginary Part (t)',
@@ -95,8 +90,8 @@ def create_zeta_plot(sigma_min, sigma_max, t_max, num_points_sigma=60, num_point
             zaxis_type='log',
             camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))
         ),
-        width=1000,
-        height=700
+        width=800,
+        height=600
     )
     
     return fig
@@ -104,94 +99,66 @@ def create_zeta_plot(sigma_min, sigma_max, t_max, num_points_sigma=60, num_point
 def main():
     st.title("🧮 Riemann Zeta Function 3D Explorer")
     st.markdown("""
-    Visualize the absolute value of the Riemann Zeta Function |ζ(s)| in 3D, where **s = σ + it** is a complex number.
+    Visualize the absolute value of the Riemann Zeta Function |ζ(s)| where **s = σ + it**.
     The **Riemann Hypothesis** states that all non-trivial zeros lie on the **critical line σ = 0.5**.
     """)
     
-    # Create sidebar for controls
+    # Sidebar controls
     with st.sidebar:
         st.header("Controls")
         
-        st.subheader("Real Part (σ) Range")
-        sigma_min = st.slider("σ minimum", 0.1, 0.9, 0.4, 0.1, help="Minimum value for the real part")
-        sigma_max = st.slider("σ maximum", 0.2, 0.9, 0.6, 0.1, help="Maximum value for the real part")
+        col1, col2 = st.columns(2)
+        with col1:
+            sigma_min = st.slider("σ min", 0.1, 0.9, 0.4, 0.05)
+        with col2:
+            sigma_max = st.slider("σ max", 0.2, 0.9, 0.6, 0.05)
         
-        st.subheader("Imaginary Part (t) Range")
-        t_max = st.slider("t maximum", 5.0, 50.0, 30.0, 5.0, help="Maximum value for the imaginary part")
+        t_max = st.slider("t max", 10.0, 50.0, 30.0, 5.0)
+        resolution = st.slider("Resolution", 30, 80, 50, 10)
         
-        st.subheader("Animation")
-        animate = st.checkbox("Create animation", False, help="Animate through different t values")
-        
-        if animate:
-            animation_speed = st.slider("Animation speed", 1, 10, 3)
-            num_frames = st.slider("Number of frames", 5, 30, 10)
-        
-        st.subheader("Resolution")
-        resolution = st.slider("Grid resolution", 30, 100, 60, help="Higher = more detailed but slower")
-        
-        if st.button("Compute Plot", type="primary"):
-            st.session_state.compute_plot = True
+        compute = st.button("Generate Plot", type="primary")
     
-    # Main content area
-    col1, col2 = st.columns([2, 1])
+    # Main content
+    if compute:
+        with st.spinner("Computing zeta function values..."):
+            X, Y, Z = compute_zeta_surface(sigma_min, sigma_max, t_max, resolution)
+            
+            st.success("Computation complete! Displaying 3D plot...")
+            fig = create_zeta_plot(X, Y, Z, sigma_min, sigma_max, t_max)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show info
+            st.info(f"""
+            **Plot Information:**
+            - **σ range:** {sigma_min:.2f} to {sigma_max:.2f}
+            - **t range:** 0.1 to {t_max:.1f}
+            - **Resolution:** {resolution}×{resolution} points
+            - **Critical line:** σ = 0.5 (red line)
+            - **Deep valleys** indicate zeros of ζ(s)
+            """)
     
-    with col1:
-        if 'compute_plot' in st.session_state and st.session_state.compute_plot:
-            with st.spinner("Generating 3D plot..."):
-                fig = create_zeta_plot(sigma_min, sigma_max, t_max, resolution, resolution)
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Show some information about the plot
-                st.info(f"""
-                **Plot Details:**
-                - **σ range:** [{sigma_min:.2f}, {sigma_max:.2f}]
-                - **t range:** [0.1, {t_max:.1f}]
-                - **Critical line:** σ = 0.5 (shown in red)
-                - **Zeros:** Points where |ζ(s)| ≈ 0 (deep purple valleys)
-                """)
-        
-        else:
-            st.info("👆 Adjust the parameters in the sidebar and click 'Compute Plot' to generate the 3D visualization.")
+    # Educational content
+    st.sidebar.markdown("---")
+    st.sidebar.header("About")
+    st.sidebar.markdown("""
+    The Riemann Zeta Function:
+    $$
+    \\zeta(s) = \\sum_{n=1}^{\\infty} \\frac{1}{n^s}
+    $$
+    for Re(s) > 1, with analytic continuation to ℂ.
     
-    with col2:
-        st.subheader("About the Riemann Hypothesis")
-        st.markdown("""
-        The Riemann Zeta Function is defined as:
-        
-        $$
-        \\zeta(s) = \\sum_{n=1}^{\\infty} \\frac{1}{n^s}
-        $$
-        
-        for Re(s) > 1, and can be analytically continued to the entire complex plane.
-        
-        **The Riemann Hypothesis** states that all non-trivial zeros of ζ(s) have real part equal to **0.5**.
-        
-        This visualization shows |ζ(s)| as a surface. The deep valleys that touch zero represent the zeros of the function.
-        """)
-        
-        st.subheader("How to Use")
-        st.markdown("""
-        1. Adjust the σ and t ranges in the sidebar
-        2. Click 'Compute Plot' to generate the 3D surface
-        3. Rotate the plot by dragging with your mouse
-        4. Zoom in/out using the scroll wheel
-        5. Hover over points to see exact values
-        """)
+    **Riemann Hypothesis:** All non-trivial zeros have Re(s) = 1/2.
+    """)
     
-    # Animation section
-    if animate and 'compute_plot' in st.session_state and st.session_state.compute_plot:
-        st.subheader("🎬 Animation")
-        st.warning("Note: Animation may take a while to compute for high resolutions.")
-        
-        animation_placeholder = st.empty()
-        t_values = np.linspace(5, t_max, num_frames)
-        
-        for i, current_t_max in enumerate(t_values):
-            with animation_placeholder.container():
-                st.write(f"Frame {i+1}/{num_frames}: t_max = {current_t_max:.1f}")
-                fig_anim = create_zeta_plot(sigma_min, sigma_max, current_t_max, 40, 40)  # Lower res for animation
-                st.plotly_chart(fig_anim, use_container_width=True)
-                time.sleep(1/animation_speed)
+    # Instructions
+    st.sidebar.header("Instructions")
+    st.sidebar.markdown("""
+    1. Adjust parameters in sidebar
+    2. Click 'Generate Plot'
+    3. Rotate: Click + drag
+    4. Zoom: Scroll wheel
+    5. Pan: Right-click + drag
+    """)
 
 if __name__ == "__main__":
     main()
